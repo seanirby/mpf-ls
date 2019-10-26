@@ -213,15 +213,19 @@ class PythonLanguageServer(MethodDispatcher):
         pass
 
     def code_actions(self, doc_uri, range, context):
+        log.warning("Code actions %s %s %s", doc_uri, range, context)
         return []
 
     def code_lens(self, doc_uri):
+        log.warning("Code lens %s", doc_uri)
         return []
 
     def _get_position_path(self, config, position):
         line = position['line']
         character = position["character"]
         candidate_key = None
+        # TODO: get start of current token and return range of token
+
         if hasattr(config, "lc"):
             for key, lc in config.lc.data.items():
                 if len(lc) >= 4 and ((lc[0] <= line and lc[3] <= character) or (lc[1] < character and lc[2] < line)):
@@ -246,7 +250,25 @@ class PythonLanguageServer(MethodDispatcher):
 
         return suggestions
 
-    def _get_settings_value_suggestions(self, config, settings):
+    def _get_link_for_value(self, settings):
+        if settings[1].startswith("machine"):
+            device = settings[1][8:-1]
+            devices = self.workspace.get_complete_config().get(device, {})
+
+            # iterate all configs and find the device as high as possible in the hierarchy
+
+
+            return [
+                {"uri": "file:///home/jan/cloud/flipper/src/good_vs_evil/config/config.yaml",
+                 "range": {"start": {"line": 1, "character": 0},
+                           "end": {"line": 10, "character": 4}}
+                 },
+            ]
+            return [(device, device + "\n", "") for device in devices]
+
+        return None
+
+    def _get_settings_value_suggestions(self, settings):
         if settings[1].startswith("enum"):
             values = settings[1][5:-1].split(",")
             suggestions = [(value, value + "\n", "") for value in values]
@@ -308,7 +330,7 @@ class PythonLanguageServer(MethodDispatcher):
             # settings level
             device_settings = self.config_spec.get(path[0], {})
             attribute_settings = device_settings.get(path[2], ["", "", ""])
-            suggestions = self._get_settings_value_suggestions(config, attribute_settings)
+            suggestions = self._get_settings_value_suggestions(attribute_settings)
         elif len(path) >= 3:
             device_settings = self.config_spec.get(path[0], {})
             for i in range(2, len(path) - 1):
@@ -320,7 +342,7 @@ class PythonLanguageServer(MethodDispatcher):
                     return []
 
             attribute_settings = device_settings.get(path[len(path) - 1], ["", "", ""])
-            suggestions = self._get_settings_value_suggestions(config, attribute_settings)
+            suggestions = self._get_settings_value_suggestions(attribute_settings)
         else:
             suggestions = []
 
@@ -342,24 +364,61 @@ class PythonLanguageServer(MethodDispatcher):
         }
 
     def definitions(self, doc_uri, position):
-        return []
+        log.warning("Definitions %s %s", doc_uri, position)
+
+        document = self.workspace.get_document(doc_uri)
+        path = self._get_position_path(document.config_roundtrip, position)
+
+        if len(path) == 3:
+            # settings level
+            device_settings = self.config_spec.get(path[0], {})
+            attribute_settings = device_settings.get(path[2], ["", "", ""])
+            return self._get_link_for_value(attribute_settings)
+        elif len(path) >= 3:
+            device_settings = self.config_spec.get(path[0], {})
+            for i in range(2, len(path) - 1):
+                attribute_settings = device_settings.get(path[i], ["", "", ""])
+                if attribute_settings[1].startswith("subconfig"):
+                    settings_name = attribute_settings[1][10:-1]
+                    device_settings = self.config_spec.get(settings_name, {})
+                else:
+                    return []
+
+            attribute_settings = device_settings.get(path[len(path) - 1], ["", "", ""])
+            return self._get_link_for_value(attribute_settings)
+        else:
+            return []
 
     def document_symbols(self, doc_uri):
+        log.warning("Document symbols %s", doc_uri)
         return []
 
     def execute_command(self, command, arguments):
+        log.warning("Execute command %s %s", command, arguments)
         return None
 
     def format_document(self, doc_uri):
+        log.warning("Format Document %s", doc_uri)
         return None
 
     def format_range(self, doc_uri, range):
+        log.warning("Format Range %s %s", doc_uri, range)
         return None
 
     def highlight(self, doc_uri, position):
+        log.warning("Highlight %s %s", doc_uri, position)
+        # return [
+        #
+        #     {"kind": lsp.DocumentHighlightKind.Read,
+        #      "range": {"start": position,
+        #                "end": {"line": position["line"], "character": position["character"] + 4}}
+        #      },
+        #
+        # ]
         return None
 
     def hover(self, doc_uri, position):
+        log.warning("Hover %s %s", doc_uri, position)
         return {'contents': ''}
 
     @_utils.debounce(LINT_DEBOUNCE_S, keyed_by='doc_uri')
@@ -373,12 +432,15 @@ class PythonLanguageServer(MethodDispatcher):
             )
 
     def references(self, doc_uri, position, exclude_declaration):
+        log.warning("References %s %s %s", doc_uri, position, exclude_declaration)
         return []
 
     def rename(self, doc_uri, position, new_name):
+        log.warning("Rename %s %s %s", doc_uri, position, new_name)
         return None
 
     def signature_help(self, doc_uri, position):
+        log.warning("Signature help %s %s", doc_uri, position)
         return None
 
     def m_text_document__did_close(self, textDocument=None, **_kwargs):
